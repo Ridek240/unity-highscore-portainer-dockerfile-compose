@@ -1,28 +1,85 @@
+
 function createHighscoreRepository(db) {
+
+  // Ranking wszystkich wyników.
+  // Przy takich samych punktach decyduje timestamp,
+  // a następnie unikalne ID.
   const rankedSql = `
-    SELECT username, points, timestamp,
-      ROW_NUMBER() OVER (ORDER BY points DESC, username COLLATE NOCASE ASC) AS placement
+    SELECT
+      id,
+      username,
+      points,
+      timestamp,
+      ROW_NUMBER() OVER (
+        ORDER BY
+          points DESC,
+          timestamp ASC,
+          id ASC
+      ) AS placement
     FROM high_scores
   `;
-  const topTenStmt = db.prepare(`${rankedSql} ORDER BY placement LIMIT 10`);
-  const allRankedStmt = db.prepare(`${rankedSql} ORDER BY placement`);
-  const findByTimestampStmt = db.prepare('SELECT username FROM high_scores WHERE timestamp = ?');
-  const byUsernameStmt = db.prepare('SELECT username, points, timestamp FROM high_scores WHERE username = ? COLLATE NOCASE');
-  const upsertStmt = db.prepare(`
-    INSERT INTO high_scores(username, points, timestamp)
-    VALUES (?, ?, ?)
-    ON CONFLICT(username) DO UPDATE SET
-      points=excluded.points,
-      timestamp=excluded.timestamp,
-      updated_at=datetime('now')
-    WHERE excluded.points > high_scores.points
+
+  const topTenStmt = db.prepare(`
+    SELECT * FROM (${rankedSql})
+    ORDER BY placement
+    LIMIT 10
   `);
+
+  const allRankedStmt = db.prepare(`
+    SELECT * FROM (${rankedSql})
+    ORDER BY placement
+  `);
+
+  // Wyszukiwanie konkretnego wyniku po timestampie.
+  const findByTimestampStmt = db.prepare(`
+    SELECT id, username, points, timestamp
+    FROM high_scores
+    WHERE timestamp = ?
+  `);
+
+  // Wyszukiwanie po nazwie (może zwrócić wiele wyników).
+  const byUsernameStmt = db.prepare(`
+    SELECT id, username, points, timestamp
+    FROM high_scores
+    WHERE username = ? COLLATE NOCASE
+    ORDER BY points DESC, timestamp ASC, id ASC
+  `);
+
+  // Każdy wynik tworzy nowy rekord.
+  const insertStmt = db.prepare(`
+    INSERT INTO high_scores (
+      username,
+      points,
+      timestamp
+    )
+    VALUES (?, ?, ?)
+  `);
+
   return {
+    // TOP 10
     topTen: () => topTenStmt.all(),
+
+    // Cały ranking
     allRanked: () => allRankedStmt.all(),
-    byTimestamp: timestamp => findByTimestampStmt.get(timestamp),
-    byUsername: username => byUsernameStmt.get(username),
-    saveBest: (username, points, timestamp) => upsertStmt.run(username, points, timestamp).changes > 0
+
+    // Jeden konkretny wynik
+    byTimestamp: timestamp =>
+      findByTimestampStmt.get(timestamp),
+
+    // Wszystkie wyniki o podanej nazwie
+    byUsername: username =>
+      byUsernameStmt.all(username),
+
+    // Zapis nowego wyniku
+    saveBest: (username, points, timestamp) => {
+      const result = insertStmt.run(
+        username,
+        points,
+        timestamp
+      );
+
+      return result.changes > 0;
+    }
   };
 }
 

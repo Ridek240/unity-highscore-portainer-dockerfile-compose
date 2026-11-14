@@ -1,18 +1,20 @@
 {
-  "name": "unity-highscore",
-  "version": "1.0.0",
+  "name": "unity-highscore-api",
+  "version": "1.1.0",
   "private": true,
-  "description": "Unity leaderboard REST API backed by SQLite, Docker and profanity filtering",
+  "description": "REST API for a Unity leaderboard, using SQLite and Docker Compose",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/*.test.js",
+    "check": "node --check src/server.js"
   },
+  "engines": { "node": ">=22" },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "express": "^4.21.2",
     "helmet": "^8.0.0",
     "profanease": "^2.0.3"
-  },
-  "engines": {
-    "node": ">=20"
   }
 }

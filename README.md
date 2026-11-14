@@ -1,45 +1,102 @@
-# Unity High Scores — API Docker / Portainer
+# Unity High Scores API
 
-**Tylko REST API dla Unity**. Node.js + Express + SQLite + filtr nicków (PL/EN). Bez strony WWW, GitHub Actions i GHCR.
+Kompletny projekt backendowy (Node.js + Express + SQLite) do uruchamiania przez Docker Compose i Portainer. **Nie zawiera strony WWW**; z endpointów korzysta Unity.
 
-## Wdrożenie przez Portainer z GitHuba
+## Struktura projektu
 
-1. Utwórz repozytorium GitHub i wrzuć **wszystkie pliki z tego katalogu do głównego katalogu repozytorium** (w szczególności `Dockerfile`, `compose.yaml`, `server.js`, `package.json`).
-2. W Portainerze wybierz **Stacks → Add stack → Repository** (Git repository).
-3. Ustaw URL repozytorium, gałąź `refs/heads/main` i **Compose path** na `compose.yaml`.
-4. Opcjonalnie ustaw zmienną Stack `HOST_PORT=3000`.
-5. Wdróż Stack. Definicja `build: { context: ., dockerfile: Dockerfile }` buduje obraz ze źródeł repozytorium. **Nie potrzebujesz GHCR ani GitHub Actions.**
-6. Sprawdź `http://ADRES_SERWERA:3000/api/high-scores`.
-
-**Ważne:** budowanie w ten sposób wymaga, by wersja Portainera i typ środowiska obsługiwały `build:` dla Git Stack oraz dostęp do kontekstu budowy. W niektórych środowiskach Portainer (szczególnie zdalny Agent / niektóre konfiguracje Swarm) budowanie z Git może nie być wspierane. Jeżeli pojawi się błąd `build`, użyj Dockera Compose bezpośrednio na hoście albo rozwiązania z gotowym obrazem. Sam plik Compose jest poprawną konfiguracją budowania lokalnego.
-
-## Lokalne uruchomienie
-
-```bash
-docker compose up -d --build
+```text
+unity-highscore-complete-project/
+├── src/
+│   ├── server.js                    # start serwera i obsługa zatrzymania
+│   ├── app.js                       # Express, middleware i błędy
+│   ├── config.js                    # konfiguracja przez zmienne środowiskowe
+│   ├── routes/highscore.routes.js   # routing API
+│   ├── controllers/highscore.controller.js
+│   ├── services/
+│   │   ├── placement.service.js     # wyszukiwanie dokładne / przybliżone
+│   │   └── profanity.service.js     # filtr PL/EN
+│   ├── repositories/highscore.repository.js # zapytania SQL
+│   ├── db/database.js               # SQLite, migracja i indeksy
+│   └── utils/validation.js
+├── tests/                            # testy Node.js
+├── unity/UnityHighScores.cs         # przykładowy klient Unity
+├── Dockerfile
+├── compose.yaml
+├── .dockerignore
+├── .gitignore
+├── .env.example
+├── package.json
+└── README.md
 ```
 
-Aktualizacja po zmianach w repozytorium: w Portainerze użyj aktualizacji/redeploy ze źródeł Git. Jeśli obraz nie został ponownie zbudowany, wywołaj redeploy z opcją przebudowania obrazu, jeśli Twoja wersja Portainera ją udostępnia. Można też na serwerze wykonać `docker compose up -d --build` w katalogu repozytorium.
+## Uruchomienie lokalnie
 
-## SQLite
+```sh
+npm install
+npm test
+npm start
+```
 
-Dane znajdują się w wolumenie `highscore_data`, pod ścieżką `/app/data/highscores.sqlite` w kontenerze. Recreate/redeploy nie usuwa tego wolumenu. **Nie usuwaj wolumenu**, jeśli chcesz zachować rekordy. Serwer wykonuje migrację istniejących tabel i w razie potrzeby dodaje kolumnę `timestamp`.
+## Docker Compose
+
+```sh
+docker compose up -d --build
+docker compose logs -f
+```
+
+API: `http://localhost:3000/api` • Health check: `http://localhost:3000/health`.
+
+## Portainer i repozytorium GitHub
+
+1. Wypakuj ZIP i wrzuć **zawartość katalogu projektu** do root repozytorium GitHub.
+2. W Portainerze wybierz **Stacks → Add stack → Repository**.
+3. Podaj URL repo i gałąź `refs/heads/main`.
+4. Ustaw **Compose path** na `compose.yaml` i wdroż Stack.
+5. Jeśli wymagane, ustaw zmienną `HOST_PORT` (domyślnie 3000).
+
+Ważne: `build: { context: ., dockerfile: Dockerfile }` jest obsługiwane tylko, jeżeli Twoja instalacja Portainera udostępnia kontekst Git w czasie budowania obrazu. W pewnych środowiskach (szczególnie Agent/Swarm) build z repo może nie być obsługiwany. W takim przypadku trzeba zbudować obraz na hoście i użyć `image:` albo udostępnić obraz w rejestrze. Sam GitHub nie jest rejestrem obrazów.
+
+**Dane są trwałe** w wolumenie `highscore_data` (SQLite: `/app/data/highscores.sqlite`). Nie uruchamiaj `docker compose down -v`, jeśli chcesz zachować wyniki. Przy wdrożeniu do innego środowiska przenieś również dane z wolumenu.
 
 ## Endpointy
 
-- `GET /api/high-scores` — TOP 10 wyników.
-- `POST /api/high-scores` — zapis najlepszego wyniku gracza. Przykładowe JSON:
+### GET `/api/high-scores`
+
+Zwraca ranking TOP 10: `{ "scores": [{ "placement": 1, "username": "Adam", "points": 9500, "timestamp": 1794672000000 }] }`.
+
+### POST `/api/high-scores`
 
 ```json
-{"username":"Ala","points":1500,"timestamp":1794672000000}
+{ "username": "Adam", "points": 9500, "timestamp": 1794672000000 }
 ```
 
-Nick 1–24 znaki, filtr wulgaryzmów PL/EN (odrzucenie: **HTTP 422**); wynik musi być nieujemną liczbą całkowitą, timestamp dodatnią liczbą całkowitą Unix w **milisekundach**. Ten sam nick przechowuje tylko najlepszy wynik, wraz z jego timestampem. Timestampy w bazie muszą być unikatowe (konflikt **HTTP 409**).
+- Jeden najlepszy wynik na nick (case-insensitive).
+- Timestamp: **Unix time w milisekundach**, liczba całkowita.
+- Nowy wynik zastępuje poprzedni tylko wtedy, gdy ma **więcej punktów**; przy słabszym rekord pozostaje niezmieniony.
+- Niedozwolony nick: HTTP `422` z `error: INAPPROPRIATE_USERNAME`.
+- Powtórzenie timestampu należącego do innego nicku: HTTP `409`.
 
-- `GET /api/my-placement?timestamp=1794672000000&points=1500` — wyszukuje dokładny timestamp. Jeżeli wynik istnieje, pokazuje gracza, maksymalnie 5 osób przed nim i 4 po nim. W przeciwnym razie szacuje pozycję na podstawie `points` i zwraca pobliskie istniejące wyniki, bez dodawania fikcyjnego wpisu. `points` wymagane dla wyszukiwania przybliżonego.
+### GET `/api/my-placement?timestamp=1794672000000&points=9500`
 
-Skopiuj `UnityHighScores.cs` do Unity i ustaw URL na `http://ADRES_SERWERA:3000/api` lub adres HTTPS reverse proxy. Używaj *tego samego* timestampu podczas zapisu i odczytu pozycji.
+1. Najpierw szuka istniejącego rekordu po **dokładnym timestampie**.
+2. Gdy znajdzie: `found: true`, `player`, do 5 pozycji wyżej i 4 niżej (`scores`).
+3. Gdy nie znajdzie: wymaga `points`, oblicza hipotetyczną pozycję gracza i zwraca najbliższe rzeczywiste wyniki (`found: false`, `estimatedPlacement`, `scores`).
+4. Jeśli pozycji jest mniej, **nie uzupełnia brakujących rekordów**.
+
+Przykład:
+
+```sh
+curl -X POST http://localhost:3000/api/high-scores \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"Adam","points":9500,"timestamp":1794672000000}'
+curl 'http://localhost:3000/api/high-scores'
+curl 'http://localhost:3000/api/my-placement?timestamp=1794672000000&points=9500'
+```
+
+## Unity
+
+Zobacz `unity/UnityHighScores.cs`. W Unity ustaw bazowy adres API na adres serwera Portainera. `localhost` w kliencie oznacza urządzenie uruchamiające grę, nie host Dockera. Przekaż ten sam timestamp do POST i potem GET.
 
 ## Bezpieczeństwo
 
-API na tym etapie ufa punktom i timestampom otrzymywanym od klienta. Przed publikacją gry dodaj uwierzytelnianie, ograniczenie liczby żądań i mechanizm weryfikacji wyników, a także HTTPS.
+API przyjmuje wynik podawany przez klienta gry. Filtr nicków nie zapobiega oszustwom ani podszywaniu się pod użytkowników. Przed publicznym wdrożeniem warto włączyć HTTPS przez reverse proxy oraz wprowadzić uwierzytelnianie i walidację wyników po stronie serwera, rate limiting oraz limity żądań. Timestamp nie jest dowodem autentyczności wyniku.

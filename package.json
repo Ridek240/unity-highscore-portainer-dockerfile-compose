@@ -15,6 +15,7 @@
     "better-sqlite3": "^11.8.1",
     "express": "^4.21.2",
     "helmet": "^8.0.0",
-    "profanease": "^2.0.3"
+    "profanease": "^2.0.3",
+    "cors": "^2.8.5"
   }
 }

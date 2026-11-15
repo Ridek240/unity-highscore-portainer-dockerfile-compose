@@ -22,8 +22,16 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf '%s\n' \
+          '130-61-175-88.sslip.io {' \
+          '    reverse_proxy highscore:3000' \
+          '}' > /etc/caddy/Caddyfile
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

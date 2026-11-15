@@ -1,3 +1,4 @@
+
 services:
   highscore:
     build:
@@ -15,5 +16,20 @@ services:
     volumes:
       - highscore_data:/app/data
 
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - highscore
+
 volumes:
   highscore_data:
+  caddy_data:
+  caddy_config:
